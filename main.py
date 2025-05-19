@@ -1,14 +1,21 @@
-from transformers import AutoModel, AutoTokenizer
-import torch
-import pandas as pd
-import umap
-import matplotlib.pyplot as plt
+import requests
+import os
+import json
+from pathlib import Path
+from base64 import decodebytes
+import base64
 import numpy as np
-from evo2 import Evo2
+import io
+import logging
+
+# Configure logging to show INFO level messages to stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 def main():
-    embeddings, labels = load_genomic_sequence()
-    plot_umap(embeddings, labels)
+    embeddings = load_embeddings_from_api()
 
 def load_genomic_sequence() -> tuple[list[np.ndarray], list[str]]:
     print("Loading model...")
@@ -43,6 +50,35 @@ def plot_umap(embeddings: list[np.ndarray], labels: list[str]):
     plt.legend(["Benign","Pathogenic"])
     plt.title("Evo 2 SAE Embeddings UMAP")
     plt.show()
+
+
+def load_embeddings_from_api() -> list[np.ndarray]:
+    # Load environment variables from .env file
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    key = os.getenv("NVIDIA_NIM_API_KEY")
+    if not key:
+        raise ValueError("NVIDIA_NIM_API_KEY environment variable not set. Please set it before running the script.")
+
+    logging.info("Loading embeddings from API...")
+    r = requests.post(
+        url=os.getenv("URL", "https://health.api.nvidia.com/v1/biology/arc/evo2-40b/forward"),
+        headers={"Authorization": f"Bearer {key}"},
+        json={
+            "sequence": "ACTGTCGATGCATCA",
+            # embedding_layer, sequential.21.mlp.l3 doesn't work
+            "output_layers": ['embedding_layer'] # Token Embeddings should use a middle layer (e.g. Layer 26): https://github.com/ArcInstitute/evo2/issues/95#issuecomment-2859371381
+        },
+    )
+
+    logging.info(r.text)
+
+    data = json.loads(r.text)
+    decoded_data = base64.b64decode(data['data'].encode("ascii"))
+    embeddings = np.load(io.BytesIO(decoded_data))['embedding_layer.output']
+
+    logging.info(np.all(embeddings[0,0] == embeddings[0,14]))  # Output: True
 
 if __name__ == "__main__":
     main()
