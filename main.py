@@ -15,7 +15,12 @@ logging.basicConfig(
 )
 
 def main():
-    embeddings = load_embeddings_from_api()
+    # Load environment variables from .env file
+    from dotenv import load_dotenv
+    load_dotenv()
+    generate_dna_sequence()
+
+    embeddings = get_embeddings()
 
 def load_genomic_sequence() -> tuple[list[np.ndarray], list[str]]:
     print("Loading model...")
@@ -52,33 +57,58 @@ def plot_umap(embeddings: list[np.ndarray], labels: list[str]):
     plt.show()
 
 
-def load_embeddings_from_api() -> list[np.ndarray]:
-    # Load environment variables from .env file
-    from dotenv import load_dotenv
-    load_dotenv()
-    
+def generate_dna_sequence() -> list[np.ndarray]:
     key = os.getenv("NVIDIA_NIM_API_KEY")
     if not key:
         raise ValueError("NVIDIA_NIM_API_KEY environment variable not set. Please set it before running the script.")
 
-    logging.info("Loading embeddings from API...")
+    logging.info("Generating DNA sequence from API...")
     r = requests.post(
-        url=os.getenv("URL", "https://health.api.nvidia.com/v1/biology/arc/evo2-40b/forward"),
-        headers={"Authorization": f"Bearer {key}"},
-        json={
-            "sequence": "ACTGTCGATGCATCA",
-            # embedding_layer, sequential.21.mlp.l3 doesn't work
-            "output_layers": ['embedding_layer'] # Token Embeddings should use a middle layer (e.g. Layer 26): https://github.com/ArcInstitute/evo2/issues/95#issuecomment-2859371381
-        },
-    )
+    url=os.getenv("URL", "https://health.api.nvidia.com/v1/biology/arc/evo2-40b/generate"),
+    headers={"Authorization": f"Bearer {key}"},
+    json={
+        "sequence": "ACTGACTGACTGACTG",
+        "num_tokens": 8,
+        "top_k": 1,
+        "enable_sampled_probs": True,
+    },
+)
 
-    logging.info(r.text)
+    if "application/json" in r.headers.get("Content-Type", ""):
+        print(r, "Saving to output.json:\n", r.text[:200], "...")
+        Path("output.json").write_text(r.text)
+    elif "application/zip" in r.headers.get("Content-Type", ""):
+        print(r, "Saving large response to data.zip")
+        Path("data.zip").write_bytes(r.content)
+    else:
+        print(r, r.headers, r.content)
+    
+def get_embeddings() -> list[np.ndarray]:
+    key = os.getenv("NVIDIA_NIM_API_KEY")
+    if not key:
+        raise ValueError("NVIDIA_NIM_API_KEY environment variable not set. Please set it before running the script.")
 
-    data = json.loads(r.text)
-    decoded_data = base64.b64decode(data['data'].encode("ascii"))
-    embeddings = np.load(io.BytesIO(decoded_data))['embedding_layer.output']
+    logging.info("Getting embeddings from API...")
+    r = requests.post(
+    url=os.getenv("URL", "https://health.api.nvidia.com/v1/biology/arc/evo2-40b/forward"),
+    headers={"Authorization": f"Bearer {key}"},
+    json={
+        "sequence": "ACTGACTGACTGACTG",
+        "output_layers": ['embedding_layer'] # Token Embeddings should use a middle layer (e.g. Layer 26): https://github.com/ArcInstitute/evo2/issues/95#issuecomment-2859371381
+    },
+)
 
-    logging.info(np.all(embeddings[0,0] == embeddings[0,14]))  # Output: True
+    if "application/json" in r.headers.get("Content-Type", ""):
+        print(r, "Saving to output.json:\n", r.text[:200], "...")
+        Path("output.json").write_text(r.text)
+    elif "application/zip" in r.headers.get("Content-Type", ""):
+        print(r, "Saving large response to data.zip")
+        Path("data.zip").write_bytes(r.content)
+    else:
+        print(r, r.headers, r.content)
+    
+    logging.info("Embeddings stored")
+
 
 if __name__ == "__main__":
     main()
