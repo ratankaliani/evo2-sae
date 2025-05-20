@@ -18,7 +18,7 @@ def main():
     # Load environment variables from .env file
     from dotenv import load_dotenv
     load_dotenv()
-    generate_dna_sequence()
+    # generate_dna_sequence()
 
     embeddings = get_embeddings()
 
@@ -89,25 +89,48 @@ def get_embeddings() -> list[np.ndarray]:
         raise ValueError("NVIDIA_NIM_API_KEY environment variable not set. Please set it before running the script.")
 
     logging.info("Getting embeddings from API...")
-    r = requests.post(
-    url=os.getenv("URL", "https://health.api.nvidia.com/v1/biology/arc/evo2-40b/forward"),
-    headers={"Authorization": f"Bearer {key}"},
-    json={
-        "sequence": "ACTGACTGACTGACTG",
-        "output_layers": ['embedding_layer'] # Token Embeddings should use a middle layer (e.g. Layer 26): https://github.com/ArcInstitute/evo2/issues/95#issuecomment-2859371381
-    },
-)
-
-    if "application/json" in r.headers.get("Content-Type", ""):
-        print(r, "Saving to output.json:\n", r.text[:200], "...")
-        Path("output.json").write_text(r.text)
-    elif "application/zip" in r.headers.get("Content-Type", ""):
-        print(r, "Saving large response to data.zip")
-        Path("data.zip").write_bytes(r.content)
-    else:
-        print(r, r.headers, r.content)
+    # Define sequences to process
+    sequences = [
+        "ACTGACTGACTGACTG",
+        "GCTAGCTAGCTAGCTA",
+        "TATATATATATATATA",
+        "CGCGCGCGCGCGCGCG"
+    ]
     
-    logging.info("Embeddings stored")
+    output_layers = ['embedding_layer']  # Can be expanded to include other layers
+    
+    for seq in sequences:
+        for layer in output_layers:
+            # Create directory if it doesn't exist
+            output_dir = Path(f"embeddings/{layer}")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Make API request
+            r = requests.post(
+                url=os.getenv("URL", "https://health.api.nvidia.com/v1/biology/arc/evo2-40b/forward"),
+                headers={"Authorization": f"Bearer {key}"},
+                json={
+                    "sequence": seq,
+                    "output_layers": [layer]
+                },
+            )
+            
+            # Check response status
+            r.raise_for_status()
+            
+            # Verify response type
+            if "application/json" not in r.headers.get("Content-Type", ""):
+                raise ValueError(f"Unexpected response type: {r.headers.get('Content-Type')}")
+            
+            # Save response
+            output_file = output_dir / f"{seq}.json"
+            if "application/json" in r.headers.get("Content-Type", ""):
+                output_file.write_text(r.text)
+                logging.info(f"Saved embeddings for sequence {seq} to {output_file}")
+            else:
+                logging.error(f"Unexpected response format for sequence {seq}: {r.headers.get('Content-Type')}")
+    
+    logging.info("All embeddings stored")
 
 
 if __name__ == "__main__":
