@@ -9,3 +9,8 @@
 
 ```bash
 ```
+
+## Issues
+
+- Retrieving the embeddings locally requires an H100.
+- The response times from the `/forward` API from NVIDIA are highly variable, and often too slow.
